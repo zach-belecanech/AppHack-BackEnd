@@ -26,6 +26,22 @@ app.post('/newStudent', (req, res) => {
     });
 });
 
+app.post('/registerStudentClasses', (req, res) => {
+    const { student_id, class_ids } = req.body; // Expecting class_ids to be an array of class IDs
+
+    class_ids.forEach(class_id => {
+        const sql = 'INSERT INTO student_classes (student_id, class_id) VALUES (?, ?)';
+        connection.query(sql, [student_id, class_id], (err, result) => {
+            if (err) {
+                return res.status(500).send(err.message);
+            }
+        });
+    });
+
+    res.send('Student registered for classes successfully');
+});
+
+
 // Read
 app.get('/getStudent/:email', (req, res) => {
     const sql = 'SELECT * FROM students WHERE email = ?';
@@ -34,6 +50,23 @@ app.get('/getStudent/:email', (req, res) => {
         res.json(results);
     });
 });
+
+app.get('/getStudentClasses/:studentId', (req, res) => {
+    const sql = `
+      SELECT c.class_id, c.class_name 
+      FROM classes c
+      JOIN student_classes sc ON c.class_id = sc.class_id
+      WHERE sc.student_id = ?`;
+
+    connection.query(sql, [req.params.studentId], (err, results) => {
+        if (err) {
+            return res.status(500).send(err.message);
+        }
+
+        res.json(results);
+    });
+});
+
 
 
 app.put('/updateStudentPersonalInfo', (req, res) => {

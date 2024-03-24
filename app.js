@@ -4,6 +4,13 @@ const mysql = require('mysql');
 const app = express();
 app.use(express.json());
 
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    next();
+});
+
 const connection = mysql.createConnection({
   host: 'apphack-db2.chacgwyoq34h.us-east-1.rds.amazonaws.com',
   user: 'admin',
@@ -18,11 +25,65 @@ connection.connect((err) => {
 
 // Create
 app.post('/newStudent', (req, res) => {
-    const { first_name, last_name, email } = req.body;
-    const sql = 'INSERT INTO students (first_name, last_name, email) VALUES (?, ?, ?)';
-    connection.query(sql, [first_name, last_name, email], (err, result) => {
+    const { first_name, last_name, email, password } = req.body;
+    const sql = 'INSERT INTO students (first_name, last_name, email, password) VALUES (?, ?, ?, ?)';
+    connection.query(sql, [first_name, last_name, email, password], (err, result) => {
         if (err) throw err;
         res.send('Student created successfully');
+    });
+});
+
+app.post('/addStudent', (req, res) => {
+    const { first_name, last_name, email, password, availability, classes } = req.body;
+
+    connection.beginTransaction(err => {
+        if (err) {
+            return res.status(500).send('Error starting transaction');
+        }
+
+        // Insert a new student into the students table
+        const insertStudentQuery = 'INSERT INTO students (first_name, last_name, email, password) VALUES (?, ?, ?, ?)';
+        connection.query(insertStudentQuery, [first_name, last_name, email, password], (err, result) => {
+            if (err) {
+                return connection.rollback(() => {
+                    res.status(500).send('Error inserting student');
+                });
+            }
+
+            const lastStudentId = result.insertId;
+
+            // Insert availability times for the new student
+            const insertAvailabilityQuery = 'INSERT INTO availability (student_id, available_from, available_until) VALUES ?';
+            const availabilityValues = availability.map(avail => [lastStudentId, avail.availableFrom, avail.availableUntil]);
+            connection.query(insertAvailabilityQuery, [availabilityValues], (err, result) => {
+                if (err) {
+                    return connection.rollback(() => {
+                        res.status(500).send('Error inserting availability');
+                    });
+                }
+
+                // Insert classes for the new student
+                const insertClassesQuery = 'INSERT INTO student_classes (student_id, class_id) VALUES ?';
+                const classValues = classes.map(classId => [lastStudentId, classId]);
+                connection.query(insertClassesQuery, [classValues], (err, result) => {
+                    if (err) {
+                        return connection.rollback(() => {
+                            res.status(500).send('Error inserting classes');
+                        });
+                    }
+
+                    connection.commit(err => {
+                        if (err) {
+                            return connection.rollback(() => {
+                                res.status(500).send('Error committing transaction');
+                            });
+                        }
+
+                        res.status(200).send('Student added successfully');
+                    });
+                });
+            });
+        });
     });
 });
 
@@ -66,6 +127,35 @@ app.get('/getStudentClasses/:studentId', (req, res) => {
         res.json(results);
     });
 });
+
+app.get('/getStudentDetails', (req, res) => {
+    const sql = `
+        SELECT
+            s.student_id,
+            s.first_name,
+            s.last_name,
+            GROUP_CONCAT(DISTINCT c.class_name SEPARATOR ', ') AS classes,
+            GROUP_CONCAT(DISTINCT CONCAT('(', TIME_FORMAT(a.available_from, '%H:%i'), ', ', TIME_FORMAT(a.available_until, '%H:%i'), ')') SEPARATOR '; ') AS availability
+        FROM
+            students s
+        LEFT JOIN
+            student_classes sc ON s.student_id = sc.student_id
+        LEFT JOIN
+            classes c ON sc.class_id = c.class_id
+        LEFT JOIN
+            availability a ON s.student_id = a.student_id
+        GROUP BY
+            s.student_id;
+    `;
+ 
+    connection.query(sql, (err, results) => {
+        if (err) {
+            return res.status(500).send(err.message);
+        }
+        res.json(results);
+    });
+ });
+ 
 
 
 

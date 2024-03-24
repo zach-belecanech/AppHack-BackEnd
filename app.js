@@ -88,6 +88,176 @@ app.post('/addStudent', (req, res) => {
     });
 });
 
+app.get('/getStudentInfo/:student_id', (req, res) => {
+    const { student_id } = req.params;
+
+    // Validate that student_id is an integer
+    if (!Number.isInteger(parseInt(student_id))) {
+        return res.status(400).send('Invalid student ID');
+    }
+
+    // Query to get the student's personal information
+    const studentInfoQuery = 'SELECT first_name, last_name, email FROM students WHERE student_id = ?';
+    
+    // Query to get the student's classes
+    const studentClassesQuery = `
+        SELECT c.class_name 
+        FROM student_classes sc
+        JOIN classes c ON sc.class_id = c.class_id
+        WHERE sc.student_id = ?
+    `;
+
+    // Query to get the student's availability
+    const studentAvailabilityQuery = 'SELECT available_from, available_until FROM availability WHERE student_id = ?';
+
+    // Execute the queries in parallel
+    Promise.all([
+        new Promise((resolve, reject) => {
+            connection.query(studentInfoQuery, [student_id], (err, result) => {
+                if (err) reject(err);
+                else resolve(result[0]);
+            });
+        }),
+        new Promise((resolve, reject) => {
+            connection.query(studentClassesQuery, [student_id], (err, result) => {
+                if (err) reject(err);
+                else resolve(result.map(row => row.class_name));
+            });
+        }),
+        new Promise((resolve, reject) => {
+            connection.query(studentAvailabilityQuery, [student_id], (err, result) => {
+                if (err) reject(err);
+                else resolve(result);
+            });
+        })
+    ]).then(([personalInfo, classes, availability]) => {
+        if (!personalInfo) {
+            return res.status(404).send('Student not found');
+        }
+
+        // Combine the results and send the response
+        res.status(200).json({
+            ...personalInfo,
+            classes,
+            availability
+        });
+    }).catch(err => {
+        console.error(err);
+        res.status(500).send('Error retrieving student information');
+    });
+});
+
+// Update student's personal information
+app.put('/updateStudent/personal/:student_id', (req, res) => {
+    const { first_name, last_name, email } = req.body;
+    const student_id = req.params.student_id;
+    const updateStudentQuery = 'UPDATE students SET first_name = ?, last_name = ?, email = ? WHERE student_id = ?';
+
+    connection.query(updateStudentQuery, [first_name, last_name, email, student_id], (err, result) => {
+        if (err) {
+            res.status(500).send('Error updating student personal information');
+        } else {
+            res.status(200).send('Student personal information updated successfully');
+        }
+    });
+});
+
+// Update student's availability
+app.put('/updateStudent/availability/:student_id', (req, res) => {
+    const { availability } = req.body;
+    const student_id = req.params.student_id;
+    const deleteAvailabilityQuery = 'DELETE FROM availability WHERE student_id = ?';
+    const insertAvailabilityQuery = 'INSERT INTO availability (student_id, available_from, available_until) VALUES ?';
+    const availabilityValues = availability.map(avail => [student_id, avail.available_from, avail.available_until]);
+
+    connection.beginTransaction(err => {
+        if (err) {
+            return res.status(500).send('Error starting transaction for availability update');
+        }
+
+        connection.query(deleteAvailabilityQuery, [student_id], (err, result) => {
+            if (err) {
+                return connection.rollback(() => {
+                    res.status(500).send('Error deleting existing availability');
+                });
+            }
+
+            connection.query(insertAvailabilityQuery, [availabilityValues], (err, result) => {
+                if (err) {
+                    return connection.rollback(() => {
+                        res.status(500).send('Error inserting new availability');
+                    });
+                }
+
+                connection.commit(err => {
+                    if (err) {
+                        return connection.rollback(() => {
+                            res.status(500).send('Error committing transaction for availability update');
+                        });
+                    }
+
+                    res.status(200).send('Student availability updated successfully');
+                });
+            });
+        });
+    });
+});
+
+// Update student's classes
+app.put('/updateStudent/classes/:student_id', (req, res) => {
+    const { classes } = req.body;
+    const student_id = req.params.student_id;
+    const deleteClassesQuery = 'DELETE FROM student_classes WHERE student_id = ?';
+    const getClassIdsQuery = 'SELECT class_id FROM classes WHERE class_name IN (?)';
+
+    connection.beginTransaction(err => {
+        if (err) {
+            return res.status(500).send('Error starting transaction for classes update');
+        }
+
+        connection.query(deleteClassesQuery, [student_id], (err, result) => {
+            if (err) {
+                return connection.rollback(() => {
+                    res.status(500).send('Error deleting existing classes');
+                });
+            }
+
+            connection.query(getClassIdsQuery, [classes], (err, classIdsResult) => {
+                if (err) {
+                    return connection.rollback(() => {
+                        res.status(500).send('Error fetching class IDs');
+                    });
+                }
+
+                const classIds = classIdsResult.map(row => row.class_id);
+                const insertClassesQuery = 'INSERT INTO student_classes (student_id, class_id) VALUES ?';
+                const classValues = classIds.map(classId => [student_id, classId]);
+
+                connection.query(insertClassesQuery, [classValues], (err, result) => {
+                    if (err) {
+                        return connection.rollback(() => {
+                            res.status(500).send('Error inserting new classes');
+                        });
+                    }
+
+                    connection.commit(err => {
+                        if (err) {
+                            return connection.rollback(() => {
+                                res.status(500).send('Error committing transaction for classes update');
+                            });
+                        }
+
+                        res.status(200).send('Student classes updated successfully');
+                    });
+                });
+            });
+        });
+    });
+});
+
+
+
+
 app.post('/registerStudentClasses', (req, res) => {
     const { student_id, class_ids } = req.body; // Expecting class_ids to be an array of class IDs
 
@@ -112,6 +282,8 @@ app.get('/getStudent/:email', (req, res) => {
         res.json(results);
     });
 });
+
+
 
 app.get('/getClasses', (req, res) => {
     const sql = 'SELECT * FROM classes';

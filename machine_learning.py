@@ -32,11 +32,12 @@ def calculate_overlap(interval1, interval2):
 
 
 def calculate_free_time_overlap(free_time1, free_time2):
-    """Calculate the total overlap in minutes between two free time lists."""
+    """Calculate the total overlap in minutes between two free time lists on the same day of the week."""
     total_overlap = 0
     for interval1 in free_time1:
         for interval2 in free_time2:
-            total_overlap += calculate_overlap(interval1, interval2)
+            if interval1[2] == interval2[2]:  # Check if the days of the week match
+                total_overlap += calculate_overlap(interval1[:2], interval2[:2])
     return total_overlap / 60  # Convert minutes to hours
 
 
@@ -52,7 +53,7 @@ def calculate_similarity(student1, student2):
     else:
         free_time_similarity = calculate_free_time_overlap(student1['free_time'], student2['free_time'])
 
-    return 0.4 * class_similarity + 0.6 * free_time_similarity  # Adjust weights as needed
+    return 0.2 * class_similarity + 0.8 * free_time_similarity  # Adjust weights as needed
 
 
 def custom_distance_metric(features1, features2):
@@ -68,7 +69,7 @@ def custom_distance_metric(features1, features2):
     free_time_similarity = min(total_free_time1, total_free_time2) / max_possible_overlap
 
     # Combine class similarity and free time similarity into a custom distance metric
-    return 1 - (0.4 * class_similarity + 0.6 * free_time_similarity)
+    return 1 - (0.2 * class_similarity + 0.8 * free_time_similarity)
 
 
 def free_time_to_binary_vector(free_time):
@@ -82,17 +83,16 @@ def free_time_to_binary_vector(free_time):
 
 def process_student_data(student):
     """Process the student data to extract class features and free time."""
-    # Handle the 'availability' field
     if student['availability'] is None:
         free_time = []
     else:
-        # Convert the availability string to a list of tuples
+        # Convert the availability string to a list of tuples (start, end, dayOfTheWeek)
         free_time = [
             tuple(time.strip('()') for time in interval.split(', '))
             for interval in student['availability'].split('); (')
         ]
-
     return free_time
+
 
 def encode_classes(classes):
     """Encode the list of classes into a binary vector."""
@@ -116,7 +116,7 @@ def cluster_students():
     for student in students:
         class_features = encode_classes(student['classes'])
         free_time = process_student_data(student)  # Process the 'availability' field
-        total_free_time = sum((time_to_minutes(end) - time_to_minutes(start)) for start, end in free_time) / 60
+        total_free_time = sum((time_to_minutes(end) - time_to_minutes(start)) for start, end, _ in free_time) / 60
         numerical_features.append(class_features + [total_free_time])
 
     numerical_features = np.array(numerical_features)

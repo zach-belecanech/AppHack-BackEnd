@@ -54,8 +54,8 @@ app.post('/addStudent', (req, res) => {
             const lastStudentId = result.insertId;
 
             // Insert availability times for the new student
-            const insertAvailabilityQuery = 'INSERT INTO availability (student_id, available_from, available_until) VALUES ?';
-            const availabilityValues = availability.map(avail => [lastStudentId, avail.availableFrom, avail.availableUntil]);
+            const insertAvailabilityQuery = 'INSERT INTO availability (student_id, available_from, available_until, dayOfTheWeek) VALUES ?';
+            const availabilityValues = availability.map(avail => [lastStudentId, avail.availableFrom, avail.availableUntil, avail.dayOfTheWeek]);
             connection.query(insertAvailabilityQuery, [availabilityValues], (err, result) => {
                 if (err) {
                     return connection.rollback(() => {
@@ -108,7 +108,7 @@ app.get('/getStudentInfo/:student_id', (req, res) => {
     `;
 
     // Query to get the student's availability
-    const studentAvailabilityQuery = 'SELECT available_from, available_until FROM availability WHERE student_id = ?';
+    const studentAvailabilityQuery = 'SELECT available_from, available_until, dayOfTheWeek FROM availability WHERE student_id = ?';
 
     // Execute the queries in parallel
     Promise.all([
@@ -167,8 +167,8 @@ app.put('/updateStudent/availability/:student_id', (req, res) => {
     const { availability } = req.body;
     const student_id = req.params.student_id;
     const deleteAvailabilityQuery = 'DELETE FROM availability WHERE student_id = ?';
-    const insertAvailabilityQuery = 'INSERT INTO availability (student_id, available_from, available_until) VALUES ?';
-    const availabilityValues = availability.map(avail => [student_id, avail.available_from, avail.available_until]);
+    const insertAvailabilityQuery = 'INSERT INTO availability (student_id, available_from, available_until, dayOfTheWeek) VALUES ?';
+    const availabilityValues = availability.map(avail => [student_id, avail.available_from, avail.available_until, avail.dayOfTheWeek]);
 
     connection.beginTransaction(err => {
         if (err) {
@@ -273,6 +273,29 @@ app.post('/registerStudentClasses', (req, res) => {
     res.send('Student registered for classes successfully');
 });
 
+app.put('/update-availability', (req, res) => {
+    // Fetch all entries from the availability table
+    connection.query('SELECT * FROM availability', (err, entries) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+
+        // Update each entry with a random day of the week
+        const days = ['M', 'T', 'W', 'R', 'F'];
+        entries.forEach(entry => {
+            const randomDay = days[Math.floor(Math.random() * days.length)];
+            connection.query('UPDATE availability SET dayOfTheWeek = ? WHERE availability_id = ?', [randomDay, entry.availability_id], (updateErr, result) => {
+                if (updateErr) {
+                    return res.status(500).json({ error: updateErr.message });
+                }
+            });
+        });
+
+        res.status(200).json({ message: 'Availability updated successfully' });
+    });
+});
+
+
 
 // Read
 app.get('/getStudent/:email', (req, res) => {
@@ -327,7 +350,7 @@ app.get('/getStudentDetails', (req, res) => {
             s.first_name,
             s.last_name,
             GROUP_CONCAT(DISTINCT c.class_name SEPARATOR ', ') AS classes,
-            GROUP_CONCAT(DISTINCT CONCAT('(', TIME_FORMAT(a.available_from, '%H:%i'), ', ', TIME_FORMAT(a.available_until, '%H:%i'), ')') SEPARATOR '; ') AS availability
+            GROUP_CONCAT(DISTINCT CONCAT('(', TIME_FORMAT(a.available_from, '%H:%i'), ', ', TIME_FORMAT(a.available_until, '%H:%i'), ', ', a.dayOfTheWeek, ')') SEPARATOR '; ') AS availability
         FROM
             students s
         LEFT JOIN

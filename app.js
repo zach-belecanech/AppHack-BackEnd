@@ -1,10 +1,11 @@
 const express = require('express');
 const mysql = require('mysql');
-
+const axios = require('axios');
 const app = express();
 app.use(express.json());
 
 app.use((req, res, next) => {
+    res.setHeader('Referrer-Policy', 'no-referrer-when-downgrade');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -19,7 +20,7 @@ const connection = mysql.createConnection({
 });
 
 connection.connect((err) => {
-  if (err) throw err;
+  if (err) throw err
   console.log('Connected to MySQL database');
 });
 
@@ -110,6 +111,25 @@ app.get('/getStudent/:email', (req, res) => {
         if (err) throw err;
         res.json(results);
     });
+});
+
+app.get('/getClasses', (req, res) => {
+    const sql = 'SELECT * FROM classes';
+    connection.query(sql, [req.params.email], (err, results) => {
+        if (err) throw err;
+        res.json(results);
+    });
+});
+
+app.get('/getMLData', (req, res) => {
+    axios.post('http://34.227.51.137/cluster_students')
+        .then(response => {
+            res.json(response.data);
+        })
+        .catch(error => {
+            console.error('Error fetching ML data:', error);
+            res.status(500).json({ error: 'Failed to fetch ML data' });
+        });
 });
 
 app.get('/getStudentClasses/:studentId', (req, res) => {

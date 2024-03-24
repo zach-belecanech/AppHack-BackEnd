@@ -2,9 +2,13 @@ import numpy as np
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import pairwise_distances, jaccard_score
 from flask import Flask, jsonify
+from flask_cors import CORS
 import requests
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://localhost:3001"]}})
+
+
 
 # Define the list of all possible classes
 all_classes = [
@@ -15,8 +19,9 @@ all_classes = [
 
 def time_to_minutes(time_str):
     """Convert a time string 'HH:MM' to minutes."""
-    hours, minutes = map(int, time_str.split(':'))
+    hours, minutes = map(int, time_str.strip().split(':'))
     return hours * 60 + minutes
+
 
 
 def calculate_overlap(interval1, interval2):
@@ -82,7 +87,10 @@ def process_student_data(student):
         free_time = []
     else:
         # Convert the availability string to a list of tuples
-        free_time = [tuple(time.strip() for time in interval.split(',')) for interval in student['availability'][1:-1].split('), (')]
+        free_time = [
+            tuple(time.strip('()') for time in interval.split(', '))
+            for interval in student['availability'].split('); (')
+        ]
 
     return free_time
 
@@ -116,16 +124,6 @@ def cluster_students():
     clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=0.5, linkage='complete')
     clustering.fit(distance_matrix)
 
-    # max_group_size = 4
-    # groups = []
-    # for cluster_label in np.unique(clustering.labels_):
-    #     cluster_indices = np.where(clustering.labels_ == cluster_label)[0]
-    #     if len(cluster_indices) <= max_group_size:
-    #         groups.append([students[i] for i in cluster_indices])
-    #     else:
-    #         for i in range(0, len(cluster_indices), max_group_size):
-    #             groups.append(
-    #                 [students[cluster_indices[j]] for j in range(i, min(i + max_group_size, len(cluster_indices)))])
 
     # Group students based on clustering labels
     groups = []
